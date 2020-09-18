@@ -1,8 +1,6 @@
-using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
+using System.Linq;
 using System.Threading.Tasks;
 using SkiaSharp;
 
@@ -24,6 +22,7 @@ namespace SkImageResizer
             }
 
             var allFiles = FindImages(sourcePath);
+
             foreach (var filePath in allFiles)
             {
                 var bitmap = SKBitmap.Decode(filePath);
@@ -33,12 +32,13 @@ namespace SkImageResizer
                 var sourceWidth = imgPhoto.Width;
                 var sourceHeight = imgPhoto.Height;
 
-                var destinationWidth = (int)(sourceWidth * scale);
-                var destinationHeight = (int)(sourceHeight * scale);
+                var destinationWidth = (int) (sourceWidth * scale);
+                var destinationHeight = (int) (sourceHeight * scale);
 
                 using var scaledBitmap = bitmap.Resize(
                     new SKImageInfo(destinationWidth, destinationHeight),
                     SKFilterQuality.High);
+
                 using var scaledImage = SKImage.FromBitmap(scaledBitmap);
                 using var data = scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100);
                 using var s = File.OpenWrite(Path.Combine(destPath, imgName + ".jpg"));
@@ -53,28 +53,37 @@ namespace SkImageResizer
                 Directory.CreateDirectory(destPath);
             }
 
-            await Task.Yield();
+            var tasks = new List<Task>();
 
-            var allFiles = FindImages(sourcePath);
-            foreach (var filePath in allFiles)
+            foreach (var filePath in FindImages(sourcePath))
             {
-                var bitmap = SKBitmap.Decode(filePath);
-                var imgPhoto = SKImage.FromBitmap(bitmap);
-                var imgName = Path.GetFileNameWithoutExtension(filePath);
+                tasks.Add(Task.Run(() =>
+                {
+                    var bitmap = SKBitmap.Decode(filePath);
+                    var imgPhoto = SKImage.FromBitmap(bitmap);
 
-                var sourceWidth = imgPhoto.Width;
-                var sourceHeight = imgPhoto.Height;
+                    var imgName = Path.GetFileNameWithoutExtension(filePath);
+                    var sourceWidth = imgPhoto.Width;
+                    var sourceHeight = imgPhoto.Height;
 
-                var destinationWidth = (int)(sourceWidth * scale);
-                var destinationHeight = (int)(sourceHeight * scale);
+                    var destinationWidth = (int) (sourceWidth * scale);
+                    var destinationHeight = (int) (sourceHeight * scale);
 
-                using var scaledBitmap = bitmap.Resize(
-                    new SKImageInfo(destinationWidth, destinationHeight),
-                    SKFilterQuality.High);
-                using var scaledImage = SKImage.FromBitmap(scaledBitmap);
-                using var data = scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100);
-                using var s = File.OpenWrite(Path.Combine(destPath, imgName + ".jpg"));
-                data.SaveTo(s);
+                    using var scaledBitmap = bitmap.Resize(
+                        new SKImageInfo(destinationWidth, destinationHeight),
+                        SKFilterQuality.High);
+
+                    using var scaledImage = SKImage.FromBitmap(scaledBitmap);
+                    using var data = scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100);
+
+                    using var s = File.OpenWrite(Path.Combine(destPath, imgName + ".jpg"));
+                    data.SaveTo(s);
+                }));
+            }
+
+            while (tasks.Any(t => !t.IsCompleted))
+            {
+                await Task.Yield();
             }
         }
 
@@ -106,7 +115,7 @@ namespace SkImageResizer
         /// <returns></returns>
         public List<string> FindImages(string srcPath)
         {
-            List<string> files = new List<string>();
+            var files = new List<string>();
             files.AddRange(Directory.GetFiles(srcPath, "*.png", SearchOption.AllDirectories));
             files.AddRange(Directory.GetFiles(srcPath, "*.jpg", SearchOption.AllDirectories));
             files.AddRange(Directory.GetFiles(srcPath, "*.jpeg", SearchOption.AllDirectories));
