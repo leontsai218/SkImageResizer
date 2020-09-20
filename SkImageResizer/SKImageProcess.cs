@@ -66,9 +66,10 @@ namespace SkImageResizer
             var resizedImageNames = new List<string>();
             var toResizeImageNames = filePaths.Select(Path.GetFileNameWithoutExtension).ToList();
 
+            await Task.Yield();
+
             foreach (var filePath in filePaths)
             {
-
                 tasks.Add(Task.Run(() =>
                 {
                     var bitmap = SKBitmap.Decode(filePath);
@@ -80,6 +81,8 @@ namespace SkImageResizer
 
                     var destinationWidth = (int)(sourceWidth * scale);
                     var destinationHeight = (int)(sourceHeight * scale);
+
+                    token.ThrowIfCancellationRequested();
 
                     using var scaledBitmap = bitmap.Resize(
                         new SKImageInfo(destinationWidth, destinationHeight),
@@ -96,22 +99,40 @@ namespace SkImageResizer
                 }, token));
             }
 
-            while (tasks.Any(t => !t.IsCompleted))
+            try
             {
-                if (token.IsCancellationRequested)
+                await Task.WhenAll(tasks);
+            }
+            catch (Exception e)
+            {
+                foreach (var task in tasks)
                 {
-                    break;
+                    switch (task.Status)
+                    {
+                        case TaskStatus.RanToCompletion:
+                            Console.WriteLine($"{task.Id}: Completed.");
+                            break;
+                        case TaskStatus.Canceled:
+                            Console.WriteLine($"{task.Id}: Canceled.");
+                            break;
+                        case TaskStatus.Faulted:
+                            Console.WriteLine($"{task.Id}: Faulted.");
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
                 }
-
-                await Task.Yield();
             }
 
-            Console.WriteLine(
-                "\nResized done images:\n" +
-                $"{string.Join("\n", resizedImageNames)}");
-            Console.WriteLine(
-                "\nImages are not resized yet:\n" + 
-                $"{string.Join("\n", toResizeImageNames)}");
+            //while (tasks.Any(t => !t.IsCompleted))
+            //{
+            //    if (token.IsCancellationRequested)
+            //    {
+            //        break;
+            //    }
+
+            //    await Task.Yield();
+            //}
         }
 
         /// <summary>
