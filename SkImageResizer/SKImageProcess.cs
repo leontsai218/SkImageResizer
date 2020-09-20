@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using SkiaSharp;
 
@@ -8,6 +10,7 @@ namespace SkImageResizer
 {
     public class SKImageProcess
     {
+
         /// <summary>
         /// 進行圖片的縮放作業
         /// </summary>
@@ -32,8 +35,8 @@ namespace SkImageResizer
                 var sourceWidth = imgPhoto.Width;
                 var sourceHeight = imgPhoto.Height;
 
-                var destinationWidth = (int) (sourceWidth * scale);
-                var destinationHeight = (int) (sourceHeight * scale);
+                var destinationWidth = (int)(sourceWidth * scale);
+                var destinationHeight = (int)(sourceHeight * scale);
 
                 using var scaledBitmap = bitmap.Resize(
                     new SKImageInfo(destinationWidth, destinationHeight),
@@ -46,7 +49,12 @@ namespace SkImageResizer
             }
         }
 
-        public async Task ResizeImagesAsync(string sourcePath, string destPath, double scale)
+        public Task ResizeImagesAsync(string sourcePath, string destPath, double scale)
+        {
+            return ResizeImagesAsync(sourcePath, destPath, scale, CancellationToken.None);
+        }
+
+        public async Task ResizeImagesAsync(string sourcePath, string destPath, double scale, CancellationToken token)
         {
             if (!Directory.Exists(destPath))
             {
@@ -54,9 +62,13 @@ namespace SkImageResizer
             }
 
             var tasks = new List<Task>();
+            var filePaths = FindImages(sourcePath);
+            var resizedImageNames = new List<string>();
+            var toResizeImageNames = filePaths.Select(Path.GetFileNameWithoutExtension).ToList();
 
-            foreach (var filePath in FindImages(sourcePath))
+            foreach (var filePath in filePaths)
             {
+
                 tasks.Add(Task.Run(() =>
                 {
                     var bitmap = SKBitmap.Decode(filePath);
@@ -66,8 +78,8 @@ namespace SkImageResizer
                     var sourceWidth = imgPhoto.Width;
                     var sourceHeight = imgPhoto.Height;
 
-                    var destinationWidth = (int) (sourceWidth * scale);
-                    var destinationHeight = (int) (sourceHeight * scale);
+                    var destinationWidth = (int)(sourceWidth * scale);
+                    var destinationHeight = (int)(sourceHeight * scale);
 
                     using var scaledBitmap = bitmap.Resize(
                         new SKImageInfo(destinationWidth, destinationHeight),
@@ -78,13 +90,28 @@ namespace SkImageResizer
 
                     using var s = File.OpenWrite(Path.Combine(destPath, imgName + ".jpg"));
                     data.SaveTo(s);
-                }));
+
+                    resizedImageNames.Add(imgName);
+                    toResizeImageNames.Remove(imgName);
+                }, token));
             }
 
             while (tasks.Any(t => !t.IsCompleted))
             {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 await Task.Yield();
             }
+
+            Console.WriteLine(
+                "\nResized done images:\n" +
+                $"{string.Join("\n", resizedImageNames)}");
+            Console.WriteLine(
+                "\nImages are not resized yet:\n" + 
+                $"{string.Join("\n", toResizeImageNames)}");
         }
 
         /// <summary>
